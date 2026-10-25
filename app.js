@@ -29,7 +29,7 @@
 
   // ---------- 저장 ----------
   function load() {
-    const def = { level: '', big: false, slow: false, day: { basic: 0, inter: 0 }, doneDate: { basic: '', inter: '' }, srs: {} };
+    const def = { level: '', big: false, slow: false, notes: [], day: { basic: 0, inter: 0 }, doneDate: { basic: '', inter: '' }, srs: {} };
     try { return Object.assign(def, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { return def; }
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) { /* 저장 불가 환경에서도 학습은 가능 */ } }
@@ -299,7 +299,8 @@
       '<button data-a="nextDay"' + (d < total - 1 ? '' : ' disabled') + '>다음 Day →</button></div>' +
       '<div class="row2"><button data-a="big">글씨 크게: ' + (st.big ? '켬' : '끔') + '</button>' +
       '<button data-a="slow">느린 음성: ' + (st.slow ? '켬' : '끔') + '</button></div>' +
-      '<div class="stack"><button data-a="diag">🔧 소리 진단</button></div>' +
+      '<div class="stack"><button data-a="notes">📝 사용 후기 메모' + (st.notes.length ? ' (' + st.notes.length + ')' : '') + '</button>' +
+      '<button data-a="diag">🔧 소리 진단</button></div>' +
       (view.diag ? '<div class="card" style="margin-top:10px">' + view.diag.map(x => '<p class="sub">' + esc(x) + '</p>').join('') + '</div>' : '');
   }
 
@@ -396,7 +397,26 @@
       '<div class="stack"><button class="main" data-a="home">홈으로</button></div>';
   }
 
-  const views = { home: vHome, learn: vLearn, listen: vListen, dict: vDict, speak: vSpeak, quiz: vQuiz, done: vDone };
+  // 사용 후기: 이 휴대폰에만 저장되므로, 복사·공유 버튼으로 밖으로 꺼내서 전달한다
+  function notesText() {
+    return st.notes.map(n => '[' + n.d + ' · ' + n.where + '] ' + n.t).join('\n');
+  }
+  function vNotes() {
+    return bar('사용 후기 메모') +
+      '<p class="note">불편했던 점, 어려웠던 점, 좋았던 점을 짧게 적어 두세요. 메모는 이 휴대폰에만 저장됩니다. 전달하려면 아래 복사 또는 공유 버튼을 누르세요.</p>' +
+      '<textarea id="note" rows="3" placeholder="예: 받아쓰기에서 문장이 너무 길어서 끝까지 못 들었다"></textarea>' +
+      '<div class="stack"><button class="main" data-a="addNote">저장</button></div>' +
+      (view.msg ? '<p class="note done">' + esc(view.msg) + '</p>' : '') +
+      (st.notes.length
+        ? '<div class="row2"><button data-a="copyNotes">전체 복사</button>' +
+          (navigator.share ? '<button data-a="shareNotes">공유 (카톡 등)</button>' : '<span></span>') + '</div>' +
+          '<h3>저장된 메모 ' + st.notes.length + '개</h3><div class="list">' +
+          st.notes.slice().reverse().map((n, k) => '<div class="card" style="margin:0"><p class="sub">' + esc(n.d + ' · ' + n.where) + '</p><p>' + esc(n.t) + '</p>' +
+            '<button class="link" data-a="delNote" data-i="' + (st.notes.length - 1 - k) + '">삭제</button></div>').join('') + '</div>'
+        : '');
+  }
+
+  const views = { home: vHome, learn: vLearn, listen: vListen, dict: vDict, speak: vSpeak, quiz: vQuiz, done: vDone, notes: vNotes };
   function render() {
     document.body.classList.toggle('big', st.big);
     app.innerHTML = st.level ? views[view.name]() : vLevel();
@@ -415,6 +435,21 @@
     big: () => { st.big = !st.big; save(); render(); },
     slow: () => { st.slow = !st.slow; save(); render(); },
     diag: () => diagnose(),
+    notes: () => go('notes'),
+    addNote: () => {
+      const t = document.getElementById('note').value.trim();
+      if (!t) return;
+      st.notes.push({ d: today(), where: LEVELS[st.level] + ' Day ' + (st.day[st.level] + 1), t: t });
+      save();
+      view.msg = '저장했습니다.';
+      render();
+    },
+    delNote: i => { st.notes.splice(i, 1); save(); view.msg = ''; render(); },
+    copyNotes: () => {
+      const done = ok => { view.msg = ok ? '복사했습니다. Claude와의 대화창에 붙여넣으세요.' : '복사에 실패했습니다. 공유 버튼을 써 주세요.'; render(); };
+      try { navigator.clipboard.writeText(notesText()).then(() => done(true), () => done(false)); } catch (e) { done(false); }
+    },
+    shareNotes: () => { navigator.share({ title: '영어 10·10 사용 후기', text: notesText() }).catch(() => {}); },
 
     learn: () => go('learn', { items: todayItems(), auto: false }),
     say: i => { if (view.auto) { view.auto = false; render(); } sayItem(view.items[i]); },
