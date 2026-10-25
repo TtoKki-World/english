@@ -2,6 +2,7 @@
   'use strict';
 
   const KEY = 'eng10-state-v1';
+  const VERSION = 'v11'; // 화면 맨 아래에 표시. 휴대폰이 새 버전을 받았는지 확인용
   const INTERVALS = [1, 2, 4, 7, 15]; // 복습 간격(일)
   const LEVELS = { basic: '기초', inter: '중급' };
   // AI 음성 파일(audio/<k>/<해시>.mp3). tools/make_audio.py의 VOICES와 순서·키를 맞춘다
@@ -226,12 +227,14 @@
   // then이 있으면 채점과 함께 하는 녹음: 시작 성공 여부만 then에 알린다
   function startRecord(then) {
     const v = view;
-    const fail = err => { if (then) then(false); else { v.recErr = err; render(); } };
+    const fail = err => { v.recInfo = '녹음 시작 실패 (' + err + ')'; if (then) then(false); else { v.recErr = err; render(); } };
     if (!navigator.mediaDevices || !window.MediaRecorder) { fail('no-record'); return; }
     navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
       const chunks = [];
+      let bytes = 0;
       const mr = media = new MediaRecorder(stream);
-      mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+      mr.ondataavailable = e => { if (e.data.size) { chunks.push(e.data); bytes += e.data.size; } };
+      mr.onerror = e => { v.recInfo = '녹음 오류 (' + ((e.error && e.error.name) || 'unknown') + ')'; };
       mr.onstop = () => {
         clearTimeout(mr.limit);
         stream.getTracks().forEach(t => t.stop());
@@ -239,13 +242,15 @@
         dropClip(v);
         if (v.discardClip) chunks.length = 0; // 채점이 실패해서 버리는 녹음
         v.discardClip = false;
+        if (!v.recInfo || !chunks.length) v.recInfo = (v.recInfo ? v.recInfo + ', ' : '') + '녹음 조각 ' + chunks.length + '개, ' + Math.round(bytes / 1024) + 'KB';
         if (chunks.length) v.myClip = URL.createObjectURL(new Blob(chunks, { type: mr.mimeType }));
         v.recording = false;
         if (view === v) render();
       };
-      mr.start();
+      mr.start(250); // 0.25초마다 조각을 모아서, 중간에 마이크가 끊겨도 앞부분은 남게 한다
       mr.limit = setTimeout(stopRecord, 10000); // 10초 뒤 자동 종료
       v.recErr = '';
+      v.recInfo = '';
       if (then) { then(true); return; }
       v.recording = true;
       render();
@@ -357,7 +362,8 @@
       '<button data-a="slow">느린 음성: ' + (st.slow ? '켬' : '끔') + '</button></div>' +
       '<div class="stack"><button data-a="notes">📝 사용 후기 메모' + (st.notes.length ? ' (' + st.notes.length + ')' : '') + '</button>' +
       '<button data-a="diag">🔧 소리 진단</button></div>' +
-      (view.diag ? '<div class="card" style="margin-top:10px">' + view.diag.map(x => '<p class="sub">' + esc(x) + '</p>').join('') + '</div>' : '');
+      (view.diag ? '<div class="card" style="margin-top:10px">' + view.diag.map(x => '<p class="sub">' + esc(x) + '</p>').join('') + '</div>' : '') +
+      '<p class="sub" style="text-align:center;margin-top:16px">버전 ' + VERSION + '</p>';
   }
 
   function vLearn() {
@@ -431,11 +437,15 @@
         ? '<button class="main" data-a="mic"' + (view.listening ? ' disabled' : '') + '>' + (view.listening ? '듣는 중… 영어로 말하세요' : '🎤 눌러서 말하기') + '</button>'
         : '<p class="note">이 브라우저는 음성 인식을 지원하지 않습니다. 크롬에서 열면 말하기 채점을 쓸 수 있습니다.</p>') +
       '<div class="row2" style="margin-top:0"><button data-a="play">🔊 원어민 듣기</button><button data-a="hint">영어 보기</button></div>' +
-      '<div class="row2" style="margin-top:0">' +
-      (view.recording ? '<button class="no" data-a="recStop">⏹ 녹음 멈추기</button>' : '<button data-a="recStart"' + (view.listening ? ' disabled' : '') + '>⏺ 내 목소리 녹음</button>') +
-      '<button data-a="mine"' + (view.myClip && !view.recording ? '' : ' disabled') + '>▶ 내 목소리 듣기</button></div>' +
+      // 따로 녹음하는 ⏺ 버튼은 채점과 동시 녹음이 안 되는 기기에서만 보인다
+      (st.noDual
+        ? '<div class="row2" style="margin-top:0">' +
+          (view.recording ? '<button class="no" data-a="recStop">⏹ 녹음 멈추기</button>' : '<button data-a="recStart"' + (view.listening ? ' disabled' : '') + '>⏺ 내 목소리 녹음</button>') +
+          '<button data-a="mine"' + (view.myClip && !view.recording ? '' : ' disabled') + '>▶ 내 목소리 듣기</button></div>' +
+          '<p class="note">이 휴대폰은 채점과 녹음을 동시에 할 수 없어서, 내 목소리는 ⏺ 버튼으로 따로 녹음해 주세요.</p>'
+        : '<button data-a="mine"' + (view.myClip ? '' : ' disabled') + '>▶ 내 목소리 듣기</button>') +
       (view.myClip && !view.recording ? '<button data-a="compare">🔁 원어민 → 내 목소리 이어서 듣기</button>' : '') +
-      (st.noDual ? '<p class="note">이 휴대폰은 채점과 녹음을 동시에 할 수 없어서, 내 목소리는 ⏺ 버튼으로 따로 녹음해 주세요.</p>' : '') +
+      (view.result && !view.myClip && view.recInfo ? '<p class="note">녹음 정보: ' + esc(view.recInfo) + '</p>' : '') +
       '<button data-a="next">다음 →</button></div>';
   }
 
