@@ -1,5 +1,5 @@
 // 네트워크 우선, 실패하면 캐시 사용 (지하철 등 오프라인 대비)
-const CACHE = 'eng10-v3';
+const CACHE = 'eng10-v4';
 const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'data-basic.js', 'data-inter.js', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

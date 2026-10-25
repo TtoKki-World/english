@@ -74,18 +74,44 @@
     return list.sort((a, b) => score(b) - score(a))[0] || null;
   }
   if (synth) synth.getVoices(); // 음성 목록은 비동기로 로드되므로 미리 요청
-  function say(text, lang, onend) {
+  function say(text, lang, onend, plain) {
     const g = gen;
     const next = () => { if (g === gen && onend) onend(); };
     if (!synth) { next(); return; }
     utter = new SpeechSynthesisUtterance(text);
     utter.lang = lang || 'en-US';
-    const v = bestVoice(utter.lang);
+    const v = plain ? null : bestVoice(utter.lang);
     if (v) utter.voice = v;
     utter.rate = st.slow ? 0.75 : 1;
     utter.onend = next;
-    utter.onerror = next;
+    utter.onerror = e => {
+      // 고른 음성이 기기에서 재생되지 않으면 기본 음성으로 다시 시도
+      if (v && g === gen && e.error !== 'interrupted' && e.error !== 'canceled') { say(text, lang, onend, true); return; }
+      next();
+    };
     synth.speak(utter);
+  }
+
+  // 소리가 안 날 때 원인을 화면에 보여 준다 (음성 지정 없이 기본 음성으로 재생)
+  function diagnose() {
+    hush();
+    const out = view.diag = [];
+    out.push('음성 기능: ' + (synth ? '있음' : '없음 (이 브라우저는 소리를 지원하지 않음)'));
+    if (!synth) { render(); return; }
+    const vs = synth.getVoices();
+    const b = bestVoice('en-US');
+    out.push('설치된 음성: ' + vs.length + '개 (영어 ' + vs.filter(v => /^en/i.test(v.lang)).length + '개)');
+    out.push('앱이 고른 음성: ' + (b ? b.name + ' / ' + b.lang : '기기 기본값'));
+    render();
+    const u = new SpeechSynthesisUtterance('Hello. This is a sound test.');
+    u.lang = 'en-US';
+    let reacted = false;
+    u.onstart = () => { reacted = true; out.push('기본 음성 재생 시작됨'); render(); };
+    u.onend = () => { reacted = true; out.push('기본 음성 재생 끝남'); render(); };
+    u.onerror = e => { reacted = true; out.push('오류: ' + e.error); render(); };
+    utter = u;
+    synth.speak(u);
+    setTimeout(() => { if (!reacted && view.diag === out) { out.push('3초 동안 반응 없음'); render(); } }, 3000);
   }
   function hush() {
     gen++;
@@ -221,7 +247,9 @@
       '<div class="row2"><button data-a="prevDay"' + (d ? '' : ' disabled') + '>← 이전 Day</button>' +
       '<button data-a="nextDay"' + (d < total - 1 ? '' : ' disabled') + '>다음 Day →</button></div>' +
       '<div class="row2"><button data-a="big">글씨 크게: ' + (st.big ? '켬' : '끔') + '</button>' +
-      '<button data-a="slow">느린 음성: ' + (st.slow ? '켬' : '끔') + '</button></div>';
+      '<button data-a="slow">느린 음성: ' + (st.slow ? '켬' : '끔') + '</button></div>' +
+      '<div class="stack"><button data-a="diag">🔧 소리 진단</button></div>' +
+      (view.diag ? '<div class="card" style="margin-top:10px">' + view.diag.map(x => '<p class="sub">' + esc(x) + '</p>').join('') + '</div>' : '');
   }
 
   function vLearn() {
@@ -335,6 +363,7 @@
     nextDay: () => { st.day[st.level]++; st.doneDate[st.level] = ''; save(); render(); },
     big: () => { st.big = !st.big; save(); render(); },
     slow: () => { st.slow = !st.slow; save(); render(); },
+    diag: () => diagnose(),
 
     learn: () => go('learn', { items: todayItems(), auto: false }),
     say: i => { if (view.auto) { view.auto = false; render(); } sayItem(view.items[i]); },
