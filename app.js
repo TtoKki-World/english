@@ -219,15 +219,15 @@
   function stopRec() { if (rec) { try { rec.abort(); } catch (e) { /* 이미 종료됨 */ } rec = null; } }
 
   // ---------- 내 목소리 녹음 ----------
-  // 음성 인식과 녹음이 마이크를 동시에 쓰면 충돌하는 기기가 있어서, 녹음은 별도 버튼으로 한다
+  // 채점(음성 인식)과 함께 녹음한다. 두 기능이 마이크를 동시에 못 쓰는 기기는 st.noDual로 기억하고 녹음 버튼을 따로 쓴다
   let media = null;
   function stopRecord() { if (media && media.state !== 'inactive') media.stop(); }
   function dropClip(v) { if (v.myClip) { URL.revokeObjectURL(v.myClip); v.myClip = ''; } }
-  function startRecord() {
-    hush();
-    stopRec();
+  // then이 있으면 채점과 함께 하는 녹음: 시작 성공 여부만 then에 알린다
+  function startRecord(then) {
     const v = view;
-    if (!navigator.mediaDevices || !window.MediaRecorder) { v.recErr = 'no-record'; render(); return; }
+    const fail = err => { if (then) then(false); else { v.recErr = err; render(); } };
+    if (!navigator.mediaDevices || !window.MediaRecorder) { fail('no-record'); return; }
     navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
       const chunks = [];
       const mr = media = new MediaRecorder(stream);
@@ -237,16 +237,19 @@
         stream.getTracks().forEach(t => t.stop());
         if (media === mr) media = null;
         dropClip(v);
+        if (v.discardClip) chunks.length = 0; // 채점이 실패해서 버리는 녹음
+        v.discardClip = false;
         if (chunks.length) v.myClip = URL.createObjectURL(new Blob(chunks, { type: mr.mimeType }));
         v.recording = false;
         if (view === v) render();
       };
       mr.start();
       mr.limit = setTimeout(stopRecord, 10000); // 10초 뒤 자동 종료
-      v.recording = true;
       v.recErr = '';
+      if (then) { then(true); return; }
+      v.recording = true;
       render();
-    }).catch(() => { v.recErr = 'not-allowed'; render(); });
+    }).catch(() => fail('not-allowed'));
   }
   function playMine(onend) {
     const g = gen;
@@ -254,10 +257,9 @@
     audio.onended = () => { if (g === gen && onend) onend(); };
     audio.play().catch(() => {});
   }
-  function startRec() {
-    hush();
-    stopRec();
+  function startRec(recording) {
     const target = cur().en;
+    let clash = false;
     rec = new Recog();
     rec.lang = 'en-US';
     rec.interimResults = false;
@@ -273,8 +275,23 @@
       });
       view.result = best;
     };
-    rec.onerror = e => { if (e.error !== 'aborted') view.recErr = e.error; };
-    rec.onend = () => { view.listening = false; rec = null; if (view.name === 'speak') render(); };
+    rec.onerror = e => {
+      if (recording && e.error === 'audio-capture') { clash = true; return; } // 녹음이 마이크를 잡고 있어서 인식이 실패
+      if (e.error !== 'aborted') view.recErr = e.error;
+    };
+    rec.onend = () => {
+      view.listening = false;
+      rec = null;
+      if (clash) view.discardClip = true;
+      stopRecord(); // 말이 끝나면 녹음도 끝낸다 → 내 목소리 듣기 활성화
+      if (clash) {
+        st.noDual = true;
+        save();
+        startRec(false); // 이 기기는 녹음 없이 채점만 다시
+        return;
+      }
+      if (view.name === 'speak') render();
+    };
     try { rec.start(); } catch (e) { view.listening = false; view.recErr = 'start-failed'; }
     render();
   }
@@ -415,9 +432,10 @@
         : '<p class="note">이 브라우저는 음성 인식을 지원하지 않습니다. 크롬에서 열면 말하기 채점을 쓸 수 있습니다.</p>') +
       '<div class="row2" style="margin-top:0"><button data-a="play">🔊 원어민 듣기</button><button data-a="hint">영어 보기</button></div>' +
       '<div class="row2" style="margin-top:0">' +
-      (view.recording ? '<button class="no" data-a="recStop">⏹ 녹음 멈추기</button>' : '<button data-a="recStart">⏺ 내 목소리 녹음</button>') +
+      (view.recording ? '<button class="no" data-a="recStop">⏹ 녹음 멈추기</button>' : '<button data-a="recStart"' + (view.listening ? ' disabled' : '') + '>⏺ 내 목소리 녹음</button>') +
       '<button data-a="mine"' + (view.myClip && !view.recording ? '' : ' disabled') + '>▶ 내 목소리 듣기</button></div>' +
       (view.myClip && !view.recording ? '<button data-a="compare">🔁 원어민 → 내 목소리 이어서 듣기</button>' : '') +
+      (st.noDual ? '<p class="note">이 휴대폰은 채점과 녹음을 동시에 할 수 없어서, 내 목소리는 ⏺ 버튼으로 따로 녹음해 주세요.</p>' : '') +
       '<button data-a="next">다음 →</button></div>';
   }
 
@@ -517,8 +535,15 @@
 
     play: () => sayItem(cur()),
     hint: () => { view.hint = !view.hint; render(); },
-    mic: () => { stopRecord(); startRec(); },
-    recStart: () => startRecord(),
+    mic: () => {
+      hush();
+      stopRec();
+      stopRecord();
+      dropClip(view);
+      if (st.noDual) startRec(false);
+      else startRecord(ok => startRec(ok));
+    },
+    recStart: () => { hush(); stopRec(); startRecord(); },
     recStop: () => stopRecord(),
     mine: () => { hush(); playMine(); },
     compare: () => { hush(); play(cur(), () => wait(700, () => playMine())); },
