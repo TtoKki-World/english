@@ -217,6 +217,43 @@
     return { hit: hit, score: a.length ? dp[a.length][b.length] / a.length : 0 };
   }
   function stopRec() { if (rec) { try { rec.abort(); } catch (e) { /* 이미 종료됨 */ } rec = null; } }
+
+  // ---------- 내 목소리 녹음 ----------
+  // 음성 인식과 녹음이 마이크를 동시에 쓰면 충돌하는 기기가 있어서, 녹음은 별도 버튼으로 한다
+  let media = null;
+  function stopRecord() { if (media && media.state !== 'inactive') media.stop(); }
+  function dropClip(v) { if (v.myClip) { URL.revokeObjectURL(v.myClip); v.myClip = ''; } }
+  function startRecord() {
+    hush();
+    stopRec();
+    const v = view;
+    if (!navigator.mediaDevices || !window.MediaRecorder) { v.recErr = 'no-record'; render(); return; }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+      const chunks = [];
+      const mr = media = new MediaRecorder(stream);
+      mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+      mr.onstop = () => {
+        clearTimeout(mr.limit);
+        stream.getTracks().forEach(t => t.stop());
+        if (media === mr) media = null;
+        dropClip(v);
+        if (chunks.length) v.myClip = URL.createObjectURL(new Blob(chunks, { type: mr.mimeType }));
+        v.recording = false;
+        if (view === v) render();
+      };
+      mr.start();
+      mr.limit = setTimeout(stopRecord, 10000); // 10초 뒤 자동 종료
+      v.recording = true;
+      v.recErr = '';
+      render();
+    }).catch(() => { v.recErr = 'not-allowed'; render(); });
+  }
+  function playMine(onend) {
+    const g = gen;
+    audio = new Audio(view.myClip);
+    audio.onended = () => { if (g === gen && onend) onend(); };
+    audio.play().catch(() => {});
+  }
   function startRec() {
     hush();
     stopRec();
@@ -250,7 +287,9 @@
   function go(name, extra) {
     hush();
     stopRec();
-    view = Object.assign({ name: name }, extra || {});
+    stopRecord();
+    dropClip(view);
+    view =Object.assign({ name: name }, extra || {});
     render();
     window.scrollTo(0, 0);
   }
@@ -366,6 +405,7 @@
     const err = view.recErr
       ? '<p class="note miss">' + (view.recErr === 'not-allowed' ? '마이크 권한이 필요합니다. 주소창의 자물쇠 아이콘에서 마이크를 허용해 주세요.'
         : view.recErr === 'no-speech' ? '소리가 들리지 않았습니다. 다시 눌러 말해 주세요.'
+        : view.recErr === 'no-record' ? '이 브라우저는 녹음을 지원하지 않습니다. 크롬에서 열어 주세요.'
         : '음성 인식에 실패했습니다 (' + esc(view.recErr) + '). 인터넷 연결을 확인해 주세요.') + '</p>' : '';
     return bar('말하기') +
       '<div class="card prompt"><div class="ko">' + esc(it.ko) + '</div></div>' + out + err +
@@ -373,7 +413,11 @@
       (Recog
         ? '<button class="main" data-a="mic"' + (view.listening ? ' disabled' : '') + '>' + (view.listening ? '듣는 중… 영어로 말하세요' : '🎤 눌러서 말하기') + '</button>'
         : '<p class="note">이 브라우저는 음성 인식을 지원하지 않습니다. 크롬에서 열면 말하기 채점을 쓸 수 있습니다.</p>') +
-      '<div class="row2" style="margin-top:0"><button data-a="play">🔊 듣기</button><button data-a="hint">영어 보기</button></div>' +
+      '<div class="row2" style="margin-top:0"><button data-a="play">🔊 원어민 듣기</button><button data-a="hint">영어 보기</button></div>' +
+      '<div class="row2" style="margin-top:0">' +
+      (view.recording ? '<button class="no" data-a="recStop">⏹ 녹음 멈추기</button>' : '<button data-a="recStart">⏺ 내 목소리 녹음</button>') +
+      '<button data-a="mine"' + (view.myClip && !view.recording ? '' : ' disabled') + '>▶ 내 목소리 듣기</button></div>' +
+      (view.myClip && !view.recording ? '<button data-a="compare">🔁 원어민 → 내 목소리 이어서 듣기</button>' : '') +
       '<button data-a="next">다음 →</button></div>';
   }
 
@@ -473,12 +517,18 @@
 
     play: () => sayItem(cur()),
     hint: () => { view.hint = !view.hint; render(); },
-    mic: () => startRec(),
+    mic: () => { stopRecord(); startRec(); },
+    recStart: () => startRecord(),
+    recStop: () => stopRecord(),
+    mine: () => { hush(); playMine(); },
+    compare: () => { hush(); play(cur(), () => wait(700, () => playMine())); },
     reveal: () => { view.revealed = true; render(); if (view.name === 'quiz') sayItem(cur()); },
     next: () => {
       if (view.i + 1 >= view.items.length) { go('home'); return; }
       hush();
       stopRec();
+      stopRecord();
+      dropClip(view);
       view.i++;
       view.revealed = false;
       view.hint = false;
