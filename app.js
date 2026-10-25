@@ -4,6 +4,15 @@
   const KEY = 'eng10-state-v1';
   const INTERVALS = [1, 2, 4, 7, 15]; // 복습 간격(일)
   const LEVELS = { basic: '기초', inter: '중급' };
+  // AI 음성 파일(audio/<k>/<해시>.mp3). tools/make_audio.py의 VOICES와 순서·키를 맞춘다
+  const VOICES = [
+    { k: 'ava', label: '미국 · 여성 (Ava)' },
+    { k: 'andrew', label: '미국 · 남성 (Andrew)' },
+    { k: 'sonia', label: '영국 · 여성 (Sonia)' },
+    { k: 'ryan', label: '영국 · 남성 (Ryan)' },
+    { k: 'natasha', label: '호주 · 여성 (Natasha)' },
+    { k: 'william', label: '호주 · 남성 (William)' }
+  ];
   const CONTENT = window.CONTENT;
   const app = document.getElementById('app');
   const synth = window.speechSynthesis;
@@ -16,6 +25,7 @@
   let utter = null; // 재생 중 GC되지 않도록 참조 유지
   let rec = null;
   let lock = null;
+  let audio = null;
 
   // ---------- 저장 ----------
   function load() {
@@ -97,6 +107,7 @@
     hush();
     const out = view.diag = [];
     out.push('음성 기능: ' + (synth ? '있음' : '없음 (이 브라우저는 소리를 지원하지 않음)'));
+    out.push('브라우저 정보: ' + navigator.userAgent);
     if (!synth) { render(); return; }
     const vs = synth.getVoices();
     const b = bestVoice('en-US');
@@ -117,11 +128,42 @@
     gen++;
     clearTimeout(timer);
     if (synth) synth.cancel();
+    if (audio) { audio.pause(); audio = null; }
     keepAwake(false);
+  }
+
+  // 목소리는 Day마다 돌아가며 바뀐다. 복습 항목은 원래 Day의 목소리로 재생한다
+  function dayVoice(day) {
+    return VOICES[(day === undefined ? st.day[st.level] : day) % VOICES.length];
+  }
+  function itemVoice(it) { return dayVoice(+it.id.split('-')[1]); }
+  // 파일 이름용 FNV-1a 해시. tools/make_audio.py의 clip_key와 같은 결과를 내야 한다
+  function clipKey(text) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return h.toString(16).padStart(8, '0');
+  }
+  function clipText(it) { return it.ex ? it.en + '. ' + it.ex : it.en; }
+
+  // AI 음성 파일을 재생하고, 파일이 없거나 재생이 막히면 기기 음성으로 읽는다
+  function play(it, onend) {
+    const g = gen;
+    const next = () => { if (g === gen && onend) onend(); };
+    let fell = false;
+    const fallback = () => {
+      if (fell || g !== gen) return;
+      fell = true;
+      say(it.en, 'en-US', it.ex ? () => say(it.ex, 'en-US', next) : next);
+    };
+    audio = new Audio('audio/' + itemVoice(it).k + '/' + clipKey(clipText(it)) + '.mp3');
+    audio.playbackRate = st.slow ? 0.75 : 1;
+    audio.onended = next;
+    audio.onerror = fallback;
+    audio.play().catch(fallback);
   }
   function sayItem(it) {
     hush();
-    say(it.en, 'en-US', it.ex ? () => say(it.ex, 'en-US') : null);
+    play(it);
   }
   function wait(ms, fn) { const g = gen; timer = setTimeout(() => { if (g === gen) fn(); }, ms); }
   function keepAwake(on) {
@@ -140,7 +182,7 @@
       if (k === i) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
     });
     const it = items[i];
-    say(it.en, 'en-US', () => wait(1200, () => say(it.en, 'en-US', () => wait(800, () => say(it.ko, 'ko-KR', () => wait(1200, () => autoStep(i + 1)))))));
+    play(it, () => wait(1200, () => play(it, () => wait(800, () => say(it.ko, 'ko-KR', () => wait(1200, () => autoStep(i + 1)))))));
   }
 
   // ---------- 말하기 채점 ----------
@@ -226,13 +268,22 @@
       '</div>';
   }
 
+  // 카카오톡·네이버 등 앱 안에서 링크를 열면 소리 기능이 없는 내장 브라우저로 열린다
+  function noSoundBanner() {
+    if (synth) return '';
+    return '<div class="card" style="border-color:var(--no)"><p><b class="miss">이 화면에서는 일부 기능이 되지 않습니다.</b></p>' +
+      '<p class="sub">카카오톡, 네이버 같은 앱 안에서 링크를 열면 한국어 뜻 읽기와 말하기 채점이 지원되지 않습니다. 오른쪽 위 메뉴(⋮)에서 "다른 브라우저로 열기"를 누르거나, 크롬 앱을 직접 열고 아래 주소를 입력하세요.</p>' +
+      '<p class="sub"><b>' + esc(location.href.split('#')[0]) + '</b></p></div>';
+  }
+
   function vHome() {
     const l = st.level, d = st.day[l], total = CONTENT[l].length;
     const due = dueItems().length;
     const done = st.doneDate[l] === today();
     return '<div class="bar"><h1>영어 10·10</h1><button class="link" data-a="pickLevel">수준: ' + LEVELS[l] + ' 변경</button></div>' +
+      noSoundBanner() +
       '<div class="card"><div class="sub">Day ' + (d + 1) + ' / ' + total + '</div><h2>' + esc(CONTENT[l][d].t) + '</h2>' +
-      '<p class="sub">문장 10개 · 단어 10개</p>' +
+      '<p class="sub">문장 10개 · 단어 10개 · 목소리: ' + esc(dayVoice().label) + '</p>' +
       (CONTENT[l][d].n ? '<p class="note">' + esc(CONTENT[l][d].n) + '</p>' : '') +
       (done ? '<p class="done">✓ 오늘 학습 완료. 내일 다음 Day가 열립니다.</p>' : '') + '</div>' +
       '<div class="menu">' +
