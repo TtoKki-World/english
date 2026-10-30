@@ -1,5 +1,5 @@
 // 네트워크 우선, 실패하면 캐시 사용 (지하철 등 오프라인 대비)
-const CACHE = 'eng10-v12';
+const CACHE = 'eng10-v13';
 const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'data-basic.js', 'data-inter.js', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -16,6 +16,7 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  if (new URL(e.request.url).origin !== location.origin) return; // 인식 모델 같은 외부 파일은 캐시에 넣지 않는다
   e.respondWith(
     fetch(e.request, { cache: 'no-cache' }) // 브라우저에 남은 예전 파일 대신 항상 서버에 새 버전을 확인
       .then(res => {

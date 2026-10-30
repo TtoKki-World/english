@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>기기 내 인식 시험</title>
+<style>
+  body { font: 16px/1.5 sans-serif; margin: 16px; color: #222; }
+  button { display: block; width: 100%; padding: 14px; margin: 8px 0; font-size: 16px; }
+  .say { background: #eef3fb; padding: 12px; font-size: 18px; font-weight: bold; }
+  .box { border: 1px solid #ccc; padding: 8px; margin: 8px 0; }
+  .sub { color: #666; font-size: 13px; word-break: break-all; }
+</style>
+</head>
+<body>
+<h3>기기 내 음성 인식 시험</h3>
+<p>와이파이에서 해 주세요. 처음 한 번 약 40MB를 받습니다. 받은 뒤 아래 문장을 하나씩 녹음하고, 다 끝나면 화면 전체를 캡처해서 보내 주세요.</p>
+<div class="say">I am going to the store</div>
+<div class="say">I should've called you yesterday</div>
+<div class="say">What are you gonna do this weekend</div>
+<button id="load">① 인식 모델 받기</button>
+<button id="rec" disabled>② 녹음 시작</button>
+<p id="status"></p>
+<div id="out"></div>
+<p class="sub" id="ua"></p>
+<script type="module">
+  import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2';
+
+  const loadBtn = document.getElementById('load'), recBtn = document.getElementById('rec');
+  const status = document.getElementById('status'), out = document.getElementById('out');
+  document.getElementById('ua').textContent = navigator.userAgent + ' / 코어 ' + navigator.hardwareConcurrency + ', 메모리 ' + (navigator.deviceMemory || '?') + 'GB';
+  let asr = null, media = null;
+
+  async function loadModel() {
+    const t0 = performance.now();
+    const seen = {};
+    asr = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
+      dtype: 'q8',
+      device: 'wasm',
+      progress_callback: p => {
+        if (p.status !== 'progress' || !p.total) return;
+        seen[p.file] = [p.loaded, p.total];
+        const v = Object.values(seen);
+        const mb = n => Math.round(n / 1e6);
+        status.textContent = '받는 중… ' + mb(v.reduce((a, x) => a + x[0], 0)) + ' / ' + mb(v.reduce((a, x) => a + x[1], 0)) + 'MB';
+      }
+    });
+    return (performance.now() - t0) / 1000;
+  }
+  async function toPcm(blob) {
+    const ctx = new AudioContext({ sampleRate: 16000 });
+    const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+    ctx.close();
+    return buf.getChannelData(0);
+  }
+  async function transcribe(blob) {
+    const pcm = await toPcm(blob);
+    const t0 = performance.now();
+    const r = await asr(pcm);
+    return { text: r.text.trim(), secs: (performance.now() - t0) / 1000, dur: pcm.length / 16000 };
+  }
+  function show(r) {
+    const box = document.createElement('div');
+    box.className = 'box';
+    box.innerHTML = '인식: <b></b><br>말한 길이 ' + r.dur.toFixed(1) + '초 → 채점에 <b>' + r.secs.toFixed(1) + '초</b> 걸림';
+    box.querySelector('b').textContent = r.text || '(없음)';
+    out.prepend(box);
+  }
+
+  loadBtn.onclick = async () => {
+    loadBtn.disabled = true;
+    try {
+      const s = await loadModel();
+      status.textContent = '준비 완료 (' + s.toFixed(1) + '초)';
+      recBtn.disabled = false;
+    } catch (e) {
+      status.textContent = '모델 준비 실패: ' + e.message;
+      loadBtn.disabled = false;
+    }
+  };
+  recBtn.onclick = async () => {
+    if (media) { media.stop(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const chunks = [];
+      media = new MediaRecorder(stream);
+      media.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+      media.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        media = null;
+        recBtn.textContent = '② 녹음 시작';
+        recBtn.disabled = true;
+        status.textContent = '채점 중…';
+        try {
+          show(await transcribe(new Blob(chunks)));
+          status.textContent = '';
+        } catch (e) {
+          status.textContent = '인식 실패: ' + e.message;
+        }
+        recBtn.disabled = false;
+      };
+      media.start(250);
+      recBtn.textContent = '■ 녹음 끝내기';
+    } catch (e) {
+      status.textContent = '마이크 실패: ' + e.name;
+    }
+  };
+</script>
+</body>
+</html>

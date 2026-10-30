@@ -2,7 +2,7 @@
   'use strict';
 
   const KEY = 'eng10-state-v1';
-  const VERSION = 'v12'; // 화면 맨 아래에 표시. 휴대폰이 새 버전을 받았는지 확인용
+  const VERSION = 'v13'; // 화면 맨 아래에 표시. 휴대폰이 새 버전을 받았는지 확인용
   const INTERVALS = [1, 2, 4, 7, 15]; // 복습 간격(일)
   const LEVELS = { basic: '기초', inter: '중급' };
   // AI 음성 파일(audio/<k>/<해시>.mp3). tools/make_audio.py의 VOICES와 순서·키를 맞춘다
