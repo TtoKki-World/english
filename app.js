@@ -2,7 +2,7 @@
   'use strict';
 
   const KEY = 'eng10-state-v1';
-  const VERSION = 'v13'; // 화면 맨 아래에 표시. 휴대폰이 새 버전을 받았는지 확인용
+  const VERSION = 'v14'; // 화면 맨 아래에 표시. 휴대폰이 새 버전을 받았는지 확인용
   const INTERVALS = [1, 2, 4, 7, 15]; // 복습 간격(일)
   const LEVELS = { basic: '기초', inter: '중급' };
   // AI 음성 파일(audio/<k>/<해시>.mp3). tools/make_audio.py의 VOICES와 순서·키를 맞춘다
@@ -17,14 +17,12 @@
   const CONTENT = window.CONTENT;
   const app = document.getElementById('app');
   const synth = window.speechSynthesis;
-  const Recog = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   let st = load();
   let view = { name: 'home' };
   let gen = 0; // 음성 재생 세대. hush()가 올리면 이전 콜백은 무시된다
   let timer = null;
   let utter = null; // 재생 중 GC되지 않도록 참조 유지
-  let rec = null;
   let lock = null;
   let audio = null;
 
@@ -217,75 +215,125 @@
     }
     return { hit: hit, score: a.length ? dp[a.length][b.length] / a.length : 0 };
   }
-  function stopRec() { if (rec) { try { rec.abort(); } catch (e) { /* 이미 종료됨 */ } rec = null; } }
+
+  // ---------- 말하기: 녹음한 소리를 기기 안에서 받아 적어 채점 ----------
+  // 안드로이드는 브라우저 음성 인식과 녹음이 마이크를 같이 쓰지 못해서(mic-test 5개 조합 모두 실패) Whisper로 직접 인식한다
+  const ASR_LIB = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2';
+  const ASR_MODEL = 'Xenova/whisper-tiny.en';
+  let asrLoad = null;
+  let asrMsg = '';
+  function loadAsr() {
+    if (asrLoad) return asrLoad;
+    const seen = {};
+    const progress = p => {
+      if (st.asrReady || p.status !== 'progress' || !p.total) return;
+      seen[p.file] = [p.loaded, p.total];
+      const v = Object.values(seen), mb = n => Math.round(n / 1e6);
+      asrMsg = '받는 중… ' + mb(v.reduce((a, x) => a + x[0], 0)) + ' / ' + mb(v.reduce((a, x) => a + x[1], 0)) + 'MB';
+      const el = document.getElementById('asrGet');
+      if (el) el.textContent = asrMsg;
+    };
+    asrMsg = '준비 중…';
+    asrLoad = import(ASR_LIB)
+      .then(lib => lib.pipeline('automatic-speech-recognition', ASR_MODEL, { dtype: 'q8', device: 'wasm', progress_callback: progress }))
+      .then(asr => { st.asrReady = true; save(); asrMsg = ''; return asr; })
+      .catch(e => { asrLoad = null; asrMsg = ''; throw e; });
+    return asrLoad;
+  }
+  function toPcm(blob) {
+    const C = window.AudioContext || window.webkitAudioContext;
+    const ctx = new C({ sampleRate: 16000 });
+    return blob.arrayBuffer().then(b => ctx.decodeAudioData(b)).then(buf => { ctx.close(); return buf.getChannelData(0); });
+  }
+  function scoreClip(v, blob) {
+    const i = v.i, target = v.items[i].en;
+    const same = () => view === v && v.i === i;
+    v.scoring = true;
+    if (view === v) render();
+    // 인식 중에는 화면이 잠시 멈추므로 "채점 중" 표시가 먼저 그려지게 한다
+    setTimeout(() => {
+      Promise.all([loadAsr(), toPcm(blob)]).then(r => r[0](r[1])).then(out => {
+        if (!same()) return;
+        const heard = out.text.trim();
+        if (heard) v.result = Object.assign({ heard: heard }, match(target, heard));
+        else v.recErr = 'no-speech';
+      }).catch(() => { if (same()) v.recErr = 'asr'; }).then(() => {
+        if (!same()) return;
+        v.scoring = false;
+        render();
+      });
+    }, 50);
+  }
+  // 말이 끝나고 조용해지면 자동으로 녹음을 멈춘다. 시끄러운 곳에서는 ⏹ 버튼이나 10초 제한으로 끝난다
+  function watchSilence(ctx, stream, v) {
+    const an = ctx.createAnalyser();
+    an.fftSize = 1024;
+    ctx.createMediaStreamSource(stream).connect(an);
+    const buf = new Float32Array(an.fftSize);
+    let peak = 0, quiet = 0, ticks = 0;
+    const timer = setInterval(() => {
+      if (++ticks <= 3) return; // 버튼 누르는 소리는 건너뛴다
+      an.getFloatTimeDomainData(buf);
+      const rms = Math.sqrt(buf.reduce((a, x) => a + x * x, 0) / buf.length);
+      peak = Math.max(peak, rms);
+      if (peak > 0.01) v.voiced = true;
+      quiet = v.voiced && rms < peak * 0.15 ? quiet + 100 : 0;
+      if (quiet >= 1200) stopRecord();
+    }, 100);
+    return () => clearInterval(timer);
+  }
 
   // ---------- 내 목소리 녹음 ----------
-  // 안드로이드에서는 녹음과 음성 인식이 마이크를 같이 쓰지 못해서 채점(🎤)과 녹음(⏺)을 따로 한다
   let media = null;
+  let micGen = 0; // 마이크가 열리기 전에 취소된 녹음을 가려낸다
   function stopRecord() { if (media && media.state !== 'inactive') media.stop(); }
+  function cancelRecord() { micGen++; if (media) { media.cancelled = true; stopRecord(); } }
   function dropClip(v) { if (v.myClip) { URL.revokeObjectURL(v.myClip); v.myClip = ''; } }
   function startRecord() {
-    const v = view;
-    const fail = err => { v.recInfo = '녹음 시작 실패 (' + err + ')'; v.recErr = err; render(); };
+    const v = view, g = ++micGen;
+    const fail = err => { v.recording = false; v.recErr = err; render(); };
     if (!navigator.mediaDevices || !window.MediaRecorder) { fail('no-record'); return; }
+    const C = window.AudioContext || window.webkitAudioContext;
+    const ctx = new C(); // 버튼을 누른 순간에 만들어야 소리 크기를 읽을 수 있다
+    v.recording = true;
+    v.voiced = false;
+    v.forceScore = false;
+    v.recErr = '';
+    render();
     navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+      if (g !== micGen) { stream.getTracks().forEach(t => t.stop()); ctx.close(); return; }
       const chunks = [];
-      let bytes = 0;
       const mr = media = new MediaRecorder(stream);
-      mr.ondataavailable = e => { if (e.data.size) { chunks.push(e.data); bytes += e.data.size; } };
-      mr.onerror = e => { v.recInfo = '녹음 오류 (' + ((e.error && e.error.name) || 'unknown') + ')'; };
+      ctx.resume();
+      const unwatch = watchSilence(ctx, stream, v);
+      mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
       mr.onstop = () => {
         clearTimeout(mr.limit);
+        unwatch();
+        ctx.close();
         stream.getTracks().forEach(t => t.stop());
         if (media === mr) media = null;
-        dropClip(v);
-        if (!v.recInfo || !chunks.length) v.recInfo = (v.recInfo ? v.recInfo + ', ' : '') + '녹음 조각 ' + chunks.length + '개, ' + Math.round(bytes / 1024) + 'KB';
-        if (chunks.length) v.myClip = URL.createObjectURL(new Blob(chunks, { type: mr.mimeType }));
         v.recording = false;
-        if (view === v) render();
+        if (mr.cancelled) return;
+        if (!chunks.length || !(v.voiced || v.forceScore)) {
+          v.recErr = 'no-speech';
+          if (view === v) render();
+          return;
+        }
+        const blob = new Blob(chunks, { type: mr.mimeType });
+        dropClip(v);
+        v.myClip = URL.createObjectURL(blob);
+        scoreClip(v, blob);
       };
-      mr.start(250); // 0.25초마다 조각을 모아서, 중간에 마이크가 끊겨도 앞부분은 남게 한다
+      mr.start(250);
       mr.limit = setTimeout(stopRecord, 10000); // 10초 뒤 자동 종료
-      v.recErr = '';
-      v.recInfo = '';
-      v.recording = true;
-      render();
-    }).catch(() => fail('not-allowed'));
+    }).catch(() => { ctx.close(); fail('not-allowed'); });
   }
   function playMine(onend) {
     const g = gen;
     audio = new Audio(view.myClip);
     audio.onended = () => { if (g === gen && onend) onend(); };
     audio.play().catch(() => {});
-  }
-  function startRec() {
-    const target = cur().en;
-    const me = rec = new Recog();
-    rec.lang = 'en-US';
-    rec.interimResults = false;
-    rec.maxAlternatives = 3;
-    view.listening = true;
-    view.result = null;
-    view.recErr = '';
-    rec.onresult = e => {
-      let best = null;
-      Array.from(e.results[0]).forEach(alt => {
-        const m = match(target, alt.transcript);
-        if (!best || m.score > best.score) best = { heard: alt.transcript, hit: m.hit, score: m.score };
-      });
-      view.result = best;
-    };
-    rec.onerror = e => { if (e.error !== 'aborted') view.recErr = e.error; };
-    rec.onend = () => {
-      if (rec === me) {
-        rec = null;
-        if (!view.result && !view.recErr) view.recErr = 'no-speech'; // 오류 없이 결과만 없이 끝나도 안내한다
-      }
-      if (!rec) view.listening = false;
-      if (view.name === 'speak') render();
-    };
-    try { rec.start(); } catch (e) { view.listening = false; view.recErr = 'start-failed'; }
-    render();
   }
 
   // ---------- 화면 ----------
@@ -295,8 +343,7 @@
   function cur() { return view.items[view.i]; }
   function go(name, extra) {
     hush();
-    stopRec();
-    stopRecord();
+    cancelRecord();
     dropClip(view);
     view =Object.assign({ name: name }, extra || {});
     render();
@@ -414,21 +461,22 @@
     }
     const err = view.recErr
       ? '<p class="note miss">' + (view.recErr === 'not-allowed' ? '마이크 권한이 필요합니다. 주소창의 자물쇠 아이콘에서 마이크를 허용해 주세요.'
-        : view.recErr === 'no-speech' ? '소리가 들리지 않았습니다. 다시 눌러 말해 주세요.'
+        : view.recErr === 'no-speech' ? '말소리가 들리지 않았습니다. 다시 눌러 말해 주세요.'
         : view.recErr === 'no-record' ? '이 브라우저는 녹음을 지원하지 않습니다. 크롬에서 열어 주세요.'
-        : '음성 인식에 실패했습니다 (' + esc(view.recErr) + '). 인터넷 연결을 확인해 주세요.') + '</p>' : '';
+        : view.recErr === 'asr-get' ? '채점 모델을 받지 못했습니다. 인터넷 연결을 확인하고 다시 눌러 주세요.'
+        : '채점에 실패했습니다. 다시 눌러 말해 주세요.') + '</p>' : '';
     return bar('말하기') +
       '<div class="card prompt"><div class="ko">' + esc(it.ko) + '</div></div>' + out + err +
       '<div class="stack">' +
-      (Recog
-        ? '<button class="main" data-a="mic"' + (view.listening || view.recording ? ' disabled' : '') + '>' + (view.listening ? '듣는 중… 영어로 말하세요' : '🎤 눌러서 말하기') + '</button>'
-        : '<p class="note">이 브라우저는 음성 인식을 지원하지 않습니다. 크롬에서 열면 말하기 채점을 쓸 수 있습니다.</p>') +
+      (!st.asrReady
+        ? '<button class="main" id="asrGet" data-a="asrGet"' + (asrMsg ? ' disabled>' + esc(asrMsg) : '>📥 채점 모델 받기 (약 40MB)') + '</button>' +
+          '<p class="note">처음 한 번만 받습니다. 와이파이에서 받아 주세요.</p>'
+        : view.recording
+          ? '<button class="main" data-a="micStop">⏹ 듣는 중… 말을 끝냈으면 누르세요</button>'
+          : '<button class="main" data-a="mic"' + (view.scoring ? ' disabled>채점 중…' : '>🎤 눌러서 말하기') + '</button>') +
       '<div class="row2" style="margin-top:0"><button data-a="play">🔊 원어민 듣기</button><button data-a="hint">영어 보기</button></div>' +
-      '<div class="row2" style="margin-top:0">' +
-      (view.recording ? '<button class="no" data-a="recStop">⏹ 녹음 멈추기</button>' : '<button data-a="recStart"' + (view.listening ? ' disabled' : '') + '>⏺ 내 목소리 녹음</button>') +
-      '<button data-a="mine"' + (view.myClip && !view.recording ? '' : ' disabled') + '>▶ 내 목소리 듣기</button></div>' +
+      '<button data-a="mine"' + (view.myClip && !view.recording ? '' : ' disabled') + '>▶ 내 목소리 듣기</button>' +
       (view.myClip && !view.recording ? '<button data-a="compare">🔁 원어민 → 내 목소리 이어서 듣기</button>' : '') +
-      (!view.recording && !view.myClip && view.recInfo ? '<p class="note">녹음 정보: ' + esc(view.recInfo) + '</p>' : '') +
       '<button data-a="next">다음 →</button></div>';
   }
 
@@ -522,33 +570,44 @@
       view.result = Object.assign({ heard: val }, match(cur().en, val));
       render();
     },
-    speak: () => go('speak', { items: todayItems().filter(x => x.type === 's'), i: 0 }),
+    speak: () => {
+      go('speak', { items: todayItems().filter(x => x.type === 's'), i: 0 });
+      if (st.asrReady) loadAsr().catch(() => {}); // 첫 채점이 빠르도록 미리 준비
+    },
     quiz: () => startQuiz('day', todayItems()),
     review: () => startQuiz('review', dueItems()),
 
     play: () => sayItem(cur()),
     hint: () => { view.hint = !view.hint; render(); },
+    asrGet: () => {
+      const v = view;
+      v.recErr = '';
+      const p = loadAsr();
+      render();
+      p.catch(() => { v.recErr = 'asr-get'; }).then(() => { if (view === v) render(); });
+    },
     mic: () => {
       hush();
-      stopRec();
-      startRec();
+      dropClip(view);
+      view.result = null;
+      startRecord();
     },
-    recStart: () => { hush(); stopRec(); startRecord(); },
-    recStop: () => stopRecord(),
+    micStop: () => { view.forceScore = true; stopRecord(); },
     mine: () => { hush(); playMine(); },
     compare: () => { hush(); play(cur(), () => wait(700, () => playMine())); },
     reveal: () => { view.revealed = true; render(); if (view.name === 'quiz') sayItem(cur()); },
     next: () => {
       if (view.i + 1 >= view.items.length) { go('home'); return; }
       hush();
-      stopRec();
-      stopRecord();
+      cancelRecord();
       dropClip(view);
       view.i++;
       view.revealed = false;
       view.hint = false;
       view.result = null;
       view.recErr = '';
+      view.scoring = false;
+      view.recording = false;
       render();
       if (view.name === 'listen' || view.name === 'dict') sayItem(cur());
     },
