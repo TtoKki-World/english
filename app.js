@@ -2,7 +2,7 @@
   'use strict';
 
   const KEY = 'eng10-state-v1';
-  const VERSION = 'v14'; // 화면 맨 아래에 표시. 휴대폰이 새 버전을 받았는지 확인용
+  const VERSION = 'v15'; // 화면 맨 아래에 표시. 휴대폰이 새 버전을 받았는지 확인용
   const INTERVALS = [1, 2, 4, 7, 15]; // 복습 간격(일)
   const LEVELS = { basic: '기초', inter: '중급' };
   // AI 음성 파일(audio/<k>/<해시>.mp3). tools/make_audio.py의 VOICES와 순서·키를 맞춘다
@@ -423,6 +423,64 @@
       '<button data-a="next">다음 →</button></div>';
   }
 
+  // ---------- 빈칸 받아쓰기 ----------
+  // 듣기 약점은 아는 단어가 이어진 말에서 약해지는 소리라서, 축약형·기능어를 먼저 비우고 어려운 단어를 하나 섞는다
+  const REDUCED = ['gonna', 'wanna', 'gotta', 'kinda', 'sorta', 'lemme', 'gimme', 'dunno', 'outta', 'lotta', 'ya'];
+  const FUNC = ('a an the to of for and or but at in on with from by as than that this these those have has had been be ' +
+    'is are am was were do does did can could would should will shall might must you your he him his she her it its ' +
+    'we us our they them their me my there if so up out about into over just not').split(' ');
+  // 소리대로 적어도, 원래 형태로 적어도 맞게 친다 (gonna = going to)
+  const SAME = [[/\bgoing to\b/g, 'gonna'], [/\bwant to\b/g, 'wanna'], [/\bgot to\b/g, 'gotta'], [/\bkind of\b/g, 'kinda'], [/\bsort of\b/g, 'sorta']];
+  function canon(x) {
+    let t = norm(x).join(' ');
+    SAME.forEach(p => { t = t.replace(p[0], p[1]); });
+    return t;
+  }
+  function tokens(en) {
+    return en.split(/\s+/).map(t => {
+      const m = t.match(/^([^A-Za-z0-9'’]*)([A-Za-z0-9'’-]*)(.*)$/);
+      return { pre: m[1], word: m[2], post: m[3] };
+    });
+  }
+  function pickBlanks(it) {
+    const p = it.id.split('-');
+    const vocab = [];
+    (CONTENT[p[0]][+p[1]].w || []).forEach(w => norm(w[0]).forEach(v => { if (v.length >= 3 && FUNC.indexOf(v) < 0) vocab.push(v); }));
+    const toks = tokens(it.en);
+    const cand = toks.map((t, i) => {
+      const w = t.word.toLowerCase().replace(/’/g, "'");
+      let weak = 0, hard = 0;
+      if (!w) return { i: i, weak: 0, hard: 0 };
+      if (REDUCED.indexOf(w) >= 0 || w.indexOf("'") > 0) weak = 3;
+      else if (FUNC.indexOf(w) >= 0) weak = 1;
+      if (vocab.some(v => w === v || (v.length >= 4 && w.indexOf(v) === 0))) hard = 3;
+      else if (w.length >= 8) hard = 2;
+      return { i: i, weak: weak, hard: hard };
+    });
+    const max = Math.min(4, Math.max(1, Math.ceil(toks.length / 3)));
+    const pick = [];
+    const hardest = cand.filter(c => c.hard && !c.weak).sort((a, b) => b.hard - a.hard)[0];
+    if (hardest) pick.push(hardest.i);
+    cand.filter(c => c.weak && pick.indexOf(c.i) < 0).sort((a, b) => b.weak - a.weak || a.i - b.i)
+      .forEach(c => { if (pick.length < max) pick.push(c.i); });
+    return { toks: toks, blanks: pick.sort((a, b) => a - b) };
+  }
+  function blankCard(it, r) {
+    const b = pickBlanks(it);
+    const html = b.toks.map((t, i) => {
+      const k = b.blanks.indexOf(i);
+      if (k < 0) return esc(t.pre + t.word + t.post);
+      if (!r) return esc(t.pre) + '<input class="blank" data-k="' + k + '" style="width:' + Math.max(3, t.word.length + 1) + 'ch" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false">' + esc(t.post);
+      const a = r.answers[k];
+      return esc(t.pre) + '<span class="' + (a.ok ? 'hit' : 'miss') + '">' + esc(t.word) + '</span>' +
+        (a.ok ? '' : '<span class="sub"> (' + (a.text ? esc(a.text) : '빈칸') + ')</span>') + esc(t.post);
+    }).join(' ');
+    if (!r) return '<div class="card prompt"><div class="en">' + html + '</div></div>';
+    const pct = Math.round(r.score * 100);
+    return '<div class="card prompt"><div class="en">' + html + '</div>' +
+      '<div class="score ' + (pct >= 80 ? 'hit' : 'miss') + '">' + pct + '%' + (pct >= 80 ? ' 좋아요!' : ' 다시 한 번') + '</div></div>';
+  }
+
   // 정답 문장을 단어별로 맞음/틀림 색으로 표시
   function resultCard(it, r, label) {
     let p = 0;
@@ -439,16 +497,25 @@
   }
 
   function vDict() {
-    const it = cur(), r = view.result;
-    return bar('받아쓰기') +
-      (r
+    const it = cur(), r = view.result, blank = st.dictMode !== 'full';
+    let body;
+    if (blank) {
+      body = blankCard(it, r) + (r
+        ? '<p class="sub" style="text-align:center">' + esc(it.ko) + '</p>' +
+          '<p class="note">빨간 단어가 놓친 소리입니다. 괄호 안은 내가 적은 답입니다.</p>'
+        : '<p class="sub" style="text-align:center">들리는 대로 빈칸을 채워 보세요</p>');
+    } else {
+      body = r
         ? resultCard(it, r, '내가 쓴 것') + '<p class="sub" style="text-align:center">' + esc(it.ko) + '</p>' +
           '<p class="note">빨간 단어가 놓친 소리입니다. 그 부분에 집중해서 다시 들어 보세요.</p>'
         : '<div class="card prompt"><div class="ko">들리는 대로 영어로 적어 보세요</div></div>' +
-          '<textarea id="dict" rows="3" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="여기에 입력"></textarea>') +
+          '<textarea id="dict" rows="3" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="여기에 입력"></textarea>';
+    }
+    return bar('받아쓰기') + body +
       '<div class="stack"><button class="main" data-a="play">🔊 다시 듣기</button>' +
       (r ? '' : '<button data-a="check">확인</button>') +
-      '<button data-a="next">다음 →</button></div>';
+      '<button data-a="next">다음 →</button>' +
+      '<button class="link" data-a="dictMode">' + (blank ? '전체 문장 받아쓰기로 바꾸기' : '빈칸 받아쓰기로 바꾸기') + '</button></div>';
   }
 
   function vSpeak() {
@@ -566,8 +633,21 @@
     listen: () => { go('listen', { items: todayItems(), i: 0, revealed: false }); sayItem(cur()); },
     dict: () => { go('dict', { items: todayItems().filter(x => x.type === 's'), i: 0 }); sayItem(cur()); },
     check: () => {
-      const val = document.getElementById('dict').value;
-      view.result = Object.assign({ heard: val }, match(cur().en, val));
+      if (st.dictMode !== 'full') {
+        const b = pickBlanks(cur());
+        const vals = Array.from(document.querySelectorAll('input.blank')).map(x => x.value.trim());
+        const answers = b.blanks.map((i, k) => ({ text: vals[k] || '', ok: !!vals[k] && canon(vals[k]) === canon(b.toks[i].word) }));
+        view.result = { answers: answers, score: answers.length ? answers.filter(x => x.ok).length / answers.length : 0 };
+      } else {
+        const val = document.getElementById('dict').value;
+        view.result = Object.assign({ heard: val }, match(cur().en, val));
+      }
+      render();
+    },
+    dictMode: () => {
+      st.dictMode = st.dictMode === 'full' ? 'blank' : 'full';
+      save();
+      view.result = null;
       render();
     },
     speak: () => {
@@ -636,6 +716,16 @@
     if (!b || b.disabled) return;
     const fn = actions[b.dataset.a];
     if (fn) fn(+b.dataset.i, b);
+  });
+
+  // 빈칸에서 엔터를 누르면 다음 빈칸으로, 마지막 빈칸이면 확인
+  app.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || !e.target.classList.contains('blank')) return;
+    e.preventDefault();
+    const all = Array.from(app.querySelectorAll('input.blank'));
+    const next = all[all.indexOf(e.target) + 1];
+    if (next) next.focus();
+    else actions.check();
   });
 
   // 앱을 켜 둔 채 날짜가 바뀐 경우
