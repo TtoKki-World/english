@@ -189,5 +189,194 @@ window.CONTENT.basic = [
       ['warm', '따뜻한', 'It is warm in spring.'],
       ['cloudy', '흐린', 'It will be cloudy tomorrow.']
     ]
+  },
+  {
+    t: '여행 1: 공항과 입국 심사',
+    s: [
+      ["What's the purpose of your visit?", '방문 목적이 뭐예요?'],
+      ["I'm here on vacation.", '여행 왔어요.'],
+      ['How long are you staying?', '얼마나 머무세요?'],
+      ["I'm staying for a week.", '일주일 머물러요.'],
+      ['Where are you staying?', '어디에 머무세요?'],
+      ["I'm staying at a hotel downtown.", '시내에 있는 호텔에 머물러요.'],
+      ['Do you have anything to declare?', '신고할 물건 있으세요?'],
+      ['No, nothing to declare.', '아니요, 신고할 거 없어요.'],
+      ['Where can I pick up my bags?', '짐은 어디서 찾아요?'],
+      ["My suitcase didn't come out.", '제 여행 가방이 안 나왔어요.']
+    ],
+    w: [
+      ['passport', '여권', 'May I see your passport?'],
+      ['boarding pass', '탑승권', 'Here is my boarding pass.'],
+      ['gate', '탑승구', 'Our flight leaves from gate ten.'],
+      ['flight', '항공편, 비행', 'How was your flight?'],
+      ['baggage claim', '짐 찾는 곳', 'Let\'s go to the baggage claim.'],
+      ['customs', '세관', 'We have to go through customs.'],
+      ['window seat', '창가 자리', 'Can I have a window seat?'],
+      ['aisle seat', '통로 쪽 자리', 'I prefer an aisle seat.'],
+      ['delayed', '지연된', 'Our flight is delayed.'],
+      ['connecting flight', '갈아탈 비행기', 'I have a connecting flight to Paris.']
+    ]
+  },
+  {
+    t: '여행 2: 호텔',
+    s: [
+      ['I have a reservation under Kim.', '김으로 예약했어요.'],
+      ['Can I see your ID, please?', '신분증 좀 보여 주시겠어요?'],
+      ['What time is check-out?', '체크아웃은 몇 시예요?'],
+      ['Is breakfast included?', '아침 식사 포함인가요?'],
+      ["What's the Wi-Fi password?", '와이파이 비밀번호가 뭐예요?'],
+      ['Could I get some more towels?', '수건 좀 더 주시겠어요?'],
+      ["The air conditioner doesn't work.", '에어컨이 안 돼요.'],
+      ['Can I leave my bags here?', '여기에 짐을 맡겨도 될까요?'],
+      ['Could you call a taxi for me?', '택시 좀 불러 주시겠어요?'],
+      ["I'd like to check out, please.", '체크아웃할게요.']
+    ],
+    w: [
+      ['check in', '체크인하다', "We'd like to check in, please."],
+      ['front desk', '프런트, 안내 데스크', 'Please ask at the front desk.'],
+      ['key card', '카드 열쇠', "My key card doesn't work."],
+      ['elevator', '엘리베이터', 'The elevator is on your right.'],
+      ['floor', '층', 'Your room is on the fifth floor.'],
+      ['towel', '수건', 'There are no towels in the bathroom.'],
+      ['included', '포함된', 'Breakfast is included in the price.'],
+      ['late check-out', '늦은 체크아웃', 'Can we get a late check-out?'],
+      ['luggage', '짐, 여행 가방', 'We have two pieces of luggage.'],
+      ['wake-up call', '모닝콜', 'Can I get a wake-up call at seven?']
+    ]
+  },
+  {
+    t: '여행 3: 택시와 기차',
+    s: [
+      ['Where to?', '어디로 모실까요?'],
+      ['To the Grand Hotel, please.', '그랜드 호텔로 가 주세요.'],
+      ['How much will it cost to get there?', '거기까지 요금이 얼마나 나와요?'],
+      ['Could you open the trunk, please?', '트렁크 좀 열어 주시겠어요?'],
+      ['Please stop here.', '여기서 세워 주세요.'],
+      ['Keep the change.', '거스름돈은 가지세요.'],
+      ['Does this train stop at Central Station?', '이 기차 중앙역에 서요?'],
+      ['Which platform does it leave from?', '몇 번 승강장에서 출발해요?'],
+      ['Is this seat taken?', '이 자리 주인 있어요?'],
+      ['Where should I get off?', '어디서 내려야 해요?']
+    ],
+    w: [
+      ['one-way', '편도', 'A one-way ticket, please.'],
+      ['round trip', '왕복', 'How much is a round trip?'],
+      ['platform', '승강장', 'The train leaves from platform three.'],
+      ['fare', '요금', 'The fare is five dollars.'],
+      ['exit', '출구', 'Take exit four.'],
+      ['trunk', '트렁크', 'Put your bags in the trunk.'],
+      ['get off', '내리다', 'Get off at the next stop.'],
+      ['change', '거스름돈', 'Here is your change.'],
+      ['meter', '(택시) 미터기', 'Please use the meter.'],
+      ['seat', '자리, 좌석', 'Please take a seat.']
+    ]
+  },
+  {
+    t: '여행 4: 식당 예약과 주문',
+    s: [
+      ['Do you have a reservation?', '예약하셨어요?'],
+      ["No, we don't. Is there a wait?", '아니요. 기다려야 하나요?'],
+      ["It'll be about twenty minutes.", '20분 정도 걸릴 거예요.'],
+      ['What would you like to drink?', '음료는 뭐로 하시겠어요?'],
+      ["I'll have the same.", '저도 같은 걸로 할게요.'],
+      ['Can we have a few more minutes?', '조금 더 보고 주문해도 될까요?'],
+      ["Excuse me, this isn't what I ordered.", '실례지만, 이거 제가 주문한 게 아니에요.'],
+      ['Can I get this to go?', '이거 포장해 갈 수 있어요?'],
+      ['Could we get separate checks?', '따로 계산할 수 있을까요?'],
+      ['Is the tip included?', '팁이 포함되어 있나요?']
+    ],
+    w: [
+      ['waiter', '종업원', 'The waiter was very kind.'],
+      ['tip', '팁, 봉사료', 'We left a tip on the table.'],
+      ['appetizer', '전채 요리', "Let's share an appetizer."],
+      ['medium', '(고기를) 중간 정도 익힌', "I'd like my steak medium."],
+      ['refill', '리필, 다시 채우기', 'Can I get a refill?'],
+      ['napkin', '냅킨', 'Could I have a napkin?'],
+      ['leftovers', '남은 음식', 'Can I take the leftovers home?'],
+      ['separately', '따로', 'Can we pay separately?'],
+      ['split', '나누다', "Let's split the bill."],
+      ['wait', '기다리는 시간', 'The wait is about ten minutes.']
+    ]
+  },
+  {
+    t: '여행 5: 관광지',
+    s: [
+      ['Two adult tickets, please.', '어른 표 두 장 주세요.'],
+      ['Is there a discount for seniors?', '어르신 할인 있어요?'],
+      ['What time does it close?', '몇 시에 문 닫아요?'],
+      ['Could you take a picture of us?', '저희 사진 좀 찍어 주시겠어요?'],
+      ['Just press this button.', '이 버튼만 누르시면 돼요.'],
+      ['Can I take pictures here?', '여기서 사진 찍어도 돼요?'],
+      ['Is there a tour in Korean?', '한국어로 하는 투어가 있어요?'],
+      ['Where is the restroom?', '화장실이 어디예요?'],
+      ['How long is the tour?', '투어는 얼마나 걸려요?'],
+      ['What is this place famous for?', '이곳은 뭐로 유명해요?']
+    ],
+    w: [
+      ['adult', '어른', 'One adult and one child, please.'],
+      ['senior', '어르신, 노인', 'Seniors get in free on Mondays.'],
+      ['entrance', '입구', 'The entrance is on the left.'],
+      ['guide', '안내원, 가이드', 'Our guide speaks Korean.'],
+      ['map', '지도', 'Can I have a free map?'],
+      ['souvenir', '기념품', 'I bought a souvenir for my son.'],
+      ['famous', '유명한', 'This bridge is very famous.'],
+      ['view', '경치', 'The view is beautiful.'],
+      ['museum', '박물관', 'The museum is closed on Mondays.'],
+      ['open', '문을 연', 'Is the park open today?']
+    ]
+  },
+  {
+    t: '여행 6: 문제가 생겼을 때',
+    s: [
+      ['Could you speak more slowly, please?', '좀 더 천천히 말씀해 주시겠어요?'],
+      ["Sorry, I don't understand.", '죄송해요, 못 알아들었어요.'],
+      ['Could you write it down for me?', '적어 주시겠어요?'],
+      ['I lost my bag.', '가방을 잃어버렸어요.'],
+      ['My wallet was stolen.', '지갑을 도둑맞았어요.'],
+      ['Where is the police station?', '경찰서가 어디예요?'],
+      ['Please call an ambulance.', '구급차 좀 불러 주세요.'],
+      ["Can you help me? It's an emergency.", '도와주시겠어요? 급한 일이에요.'],
+      ['Is there a Korean embassy near here?', '이 근처에 한국 대사관이 있어요?'],
+      ['I missed my flight.', '비행기를 놓쳤어요.']
+    ],
+    w: [
+      ['emergency', '응급 상황, 급한 일', 'Call this number in an emergency.'],
+      ['lost and found', '분실물 보관소', "Let's ask at the lost and found."],
+      ['police', '경찰', 'I need to call the police.'],
+      ['insurance', '보험', 'Do you have travel insurance?'],
+      ['hurt', '아프다, 다치다', 'My leg hurts.'],
+      ['dizzy', '어지러운', 'I feel dizzy.'],
+      ['charger', '충전기', 'Can I borrow your phone charger?'],
+      ['stolen', '도둑맞은', 'My phone was stolen.'],
+      ['slowly', '천천히', 'Please drive slowly.'],
+      ['repeat', '다시 말하다', 'Could you repeat that, please?']
+    ]
+  },
+  {
+    t: '여행 7: 카페와 편의점',
+    s: [
+      ['Can I get a small latte?', '라테 작은 걸로 하나 주세요.'],
+      ['For here or to go?', '드시고 가세요, 가져가세요?'],
+      ['To go, please.', '가져갈게요.'],
+      ['Can I have it without sugar?', '설탕은 빼 주시겠어요?'],
+      ['Do you need a bag?', '봉투 필요하세요?'],
+      ["No, I'm fine, thanks.", '아니요, 괜찮아요. 고마워요.'],
+      ['Would you like your receipt?', '영수증 드릴까요?'],
+      ['Where can I find bottled water?', '생수는 어디에 있어요?'],
+      ['Do you sell SIM cards here?', '여기서 유심 카드 팔아요?'],
+      ['Is there an ATM nearby?', '근처에 현금 인출기 있어요?']
+    ],
+    w: [
+      ['milk', '우유', 'Can I have some milk in my coffee?'],
+      ['iced', '차가운, 얼음을 넣은', 'An iced tea, please.'],
+      ['large', '큰', "I'll have a large one."],
+      ['snack', '간식', "Let's buy some snacks."],
+      ['plastic bag', '비닐봉지', "I don't need a plastic bag."],
+      ['coin', '동전', 'I have some coins.'],
+      ['sold out', '다 팔린', "Sorry, it's sold out."],
+      ['straw', '빨대', 'Could I get a straw?'],
+      ['heat up', '데우다', 'Can you heat this up?'],
+      ['tax', '세금', 'Is tax included?']
+    ]
   }
 ];
